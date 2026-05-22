@@ -359,6 +359,152 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   const workbenchVideoRef = useRef<HTMLVideoElement>(null);
   const workbenchStreamRef = useRef<MediaStream | null>(null);
 
+  const [activePanel, setActivePanel] = useState(0);
+  const draftingContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToPanel = (panelIndex: number) => {
+    if (!draftingContainerRef.current) return;
+    const container = draftingContainerRef.current;
+    
+    // Select only direct sliding panels (elements with the snap-center class)
+    const children = Array.from(container.children).filter(el => 
+      el.classList.contains('snap-center') || el.classList.contains('snap-start')
+    );
+    
+    if (children && children[panelIndex]) {
+      children[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      setActivePanel(panelIndex);
+    }
+  };
+
+  const handleDraftingScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const scrollLeft = container.scrollLeft;
+    const width = container.clientWidth;
+    if (width > 0) {
+      const index = Math.round(scrollLeft / width);
+      if (index !== activePanel && index >= 0 && index < 3) {
+        setActivePanel(index);
+      }
+    }
+  };
+
+  const [activeCommandPanel, setActiveCommandPanel] = useState(0);
+  const commandContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToCommandPanel = (panelIndex: number) => {
+    if (!commandContainerRef.current) return;
+    const container = commandContainerRef.current;
+    
+    const children = Array.from(container.children).filter(el => 
+      el.classList.contains('snap-center') || el.classList.contains('snap-start')
+    );
+    
+    if (children && children[panelIndex]) {
+      children[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      setActiveCommandPanel(panelIndex);
+    }
+  };
+
+  const handleCommandScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const scrollLeft = container.scrollLeft;
+    const width = container.clientWidth;
+    if (width > 0) {
+      const index = Math.round(scrollLeft / width);
+      if (index !== activeCommandPanel && index >= 0 && index < 2) {
+        setActiveCommandPanel(index);
+      }
+    }
+  };
+
+  const [activeReadPanel, setActiveReadPanel] = useState(0);
+  const readContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToReadPanel = (panelIndex: number) => {
+    if (!readContainerRef.current) return;
+    const container = readContainerRef.current;
+    
+    const children = Array.from(container.children).filter(el => 
+      el.classList.contains('snap-center') || el.classList.contains('snap-start')
+    );
+    
+    if (children && children[panelIndex]) {
+      children[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      setActiveReadPanel(panelIndex);
+    }
+  };
+
+  const handleReadScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const scrollLeft = container.scrollLeft;
+    const width = container.clientWidth;
+    if (width > 0) {
+      const index = Math.round(scrollLeft / width);
+      if (index !== activeReadPanel && index >= 0 && index < 2) {
+        setActiveReadPanel(index);
+      }
+    }
+  };
+
+  const [activeConvertPanel, setActiveConvertPanel] = useState(0);
+  const convertContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToConvertPanel = (panelIndex: number) => {
+    if (!convertContainerRef.current) return;
+    const container = convertContainerRef.current;
+    
+    const children = Array.from(container.children).filter(el => 
+      el.classList.contains('snap-center') || el.classList.contains('snap-start')
+    );
+    
+    if (children && children[panelIndex]) {
+      children[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      setActiveConvertPanel(panelIndex);
+    }
+  };
+
+  const handleConvertScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const scrollLeft = container.scrollLeft;
+    const width = container.clientWidth;
+    if (width > 0) {
+      const index = Math.round(scrollLeft / width);
+      if (index !== activeConvertPanel && index >= 0 && index < 3) {
+        setActiveConvertPanel(index);
+      }
+    }
+  };
+
+  const [activeInstructionsPanel, setActiveInstructionsPanel] = useState(0);
+  const instructionsContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToInstructionsPanel = (panelIndex: number) => {
+    if (!instructionsContainerRef.current) return;
+    const container = instructionsContainerRef.current;
+    
+    const children = Array.from(container.children).filter(el => 
+      el.classList.contains('snap-center') || el.classList.contains('snap-start')
+    );
+    
+    if (children && children[panelIndex]) {
+      children[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      setActiveInstructionsPanel(panelIndex);
+    }
+  };
+
+  const handleInstructionsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const scrollLeft = container.scrollLeft;
+    const width = container.clientWidth;
+    if (width > 0) {
+      const index = Math.round(scrollLeft / width);
+      if (index !== activeInstructionsPanel && index >= 0 && index < 2) {
+        setActiveInstructionsPanel(index);
+      }
+    }
+  };
+
   const [isPromptDictating, setIsPromptDictating] = useState(false);
   const promptRecognitionRef = useRef<any>(null);
 
@@ -2358,10 +2504,39 @@ Paragraph: [Detailed rationale of principle of law and application]
           <NeuralFlow />
           <AnimatePresence mode="wait">
             {view === 'command' && (
-              <motion.div key="command" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 24, gap: 24, overflow: 'hidden' }}>
-                <div className="flex-1 flex gap-6 overflow-hidden">
+              <motion.div key="command" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="p-3 md:p-6 gap-3 md:gap-6">
+                {/* Mobile Slider Navigation */}
+                <div className="flex md:hidden bg-[#090e18] border border-white/10 p-2 rounded-2xl justify-around items-center shrink-0 z-30 select-none mb-2">
+                  <button 
+                    onClick={() => scrollToCommandPanel(0)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeCommandPanel === 0 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    1. Voice & Rules
+                  </button>
+                  <div className="text-slate-800 text-[10px] font-bold">•</div>
+                  <button 
+                    onClick={() => scrollToCommandPanel(1)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeCommandPanel === 1 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    2. Call Logs
+                  </button>
+                </div>
+
+                <div 
+                  ref={commandContainerRef}
+                  onScroll={handleCommandScroll}
+                  className="flex-1 flex flex-row overflow-x-auto md:overflow-hidden snap-x snap-mandatory scroll-smooth custom-scrollbar gap-6"
+                >
                   {/* Left Column */}
-                  <div className="w-[400px] flex flex-col gap-6">
+                  <div className="w-[calc(100vw-72px)] md:w-[400px] flex-shrink-0 snap-center flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-1 pb-4">
                     <div style={S.card} className="relative overflow-hidden">
                       <div className="text-[10px] font-black text-amber-500 tracking-[0.2em] mb-2">HYBRID AI NODE</div>
                       <h2 className="text-4xl font-black italic text-slate-200 mb-8">Command<span className="text-slate-500">Center</span></h2>
@@ -2538,7 +2713,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                   </div>
 
                   {/* Right Column */}
-                  <div className="flex-1 flex flex-col gap-6 overflow-hidden">
+                  <div className="w-[calc(100vw-72px)] md:w-auto md:flex-1 flex-shrink-0 snap-center flex flex-col gap-6 overflow-hidden">
                     <div style={S.card} className="flex-1 flex flex-col overflow-hidden p-0">
                       <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center">
                         <div className="text-[10px] font-black text-amber-500 tracking-widest uppercase">CALL LOGS & TRANSCRIPTS</div>
@@ -2830,9 +3005,51 @@ Paragraph: [Detailed rationale of principle of law and application]
             )}
 
             {view === 'drafting' && (
-              <motion.div key="drafting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex overflow-hidden">
-                {/* Left Panel: Inputs */}
-                <div className="w-80 flex flex-col border-r border-white/5 bg-[#070b14]">
+              <motion.div key="drafting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full flex flex-col overflow-hidden">
+                {/* Mobile Slider Header-Tabs Navigation */}
+                <div className="flex md:hidden bg-[#090e18] border-b border-white/10 p-2.5 justify-around items-center shrink-0 z-30 select-none">
+                  <button 
+                    onClick={() => scrollToPanel(0)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activePanel === 0 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    1. Case Inputs
+                  </button>
+                  <div className="text-slate-800 text-[10px] font-bold">•</div>
+                  <button 
+                    onClick={() => scrollToPanel(1)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activePanel === 1 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    2. Draft Pad
+                  </button>
+                  <div className="text-slate-800 text-[10px] font-bold">•</div>
+                  <button 
+                    onClick={() => scrollToPanel(2)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activePanel === 2 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    3. AI Advice
+                  </button>
+                </div>
+
+                {/* Sliding panels wrapper */}
+                <div 
+                  ref={draftingContainerRef}
+                  onScroll={handleDraftingScroll}
+                  className="flex-1 flex flex-row overflow-x-auto md:overflow-hidden snap-x snap-mandatory scroll-smooth custom-scrollbar"
+                >
+                  {/* Left Panel: Inputs */}
+                  <div className="w-[calc(100vw-72px)] md:w-80 flex-shrink-0 snap-center flex flex-col border-r border-white/5 bg-[#070b14]">
                   <div className="p-6 border-b border-white/5">
                     <div className="text-[10px] font-black text-indigo-500 tracking-widest uppercase">CASE INPUTS</div>
                   </div>
@@ -2877,7 +3094,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                 </div>
 
                 {/* Middle Panel: Writing Pad */}
-                <div className="flex-1 flex flex-col border-r border-white/5">
+                <div className="w-[calc(100vw-72px)] md:w-auto md:flex-1 flex-shrink-0 snap-center flex flex-col border-r border-white/5 bg-slate-950/10">
                   <div className="h-12 bg-white/5 border-b border-white/5 flex items-center justify-between px-6">
                     <div className="flex items-center gap-3">
                       <div className="text-[10px] font-black text-indigo-400 tracking-widest uppercase mr-4">TEMPORARY WRITING PAD</div>
@@ -3077,7 +3294,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                 </div>
 
                 {/* Right Panel: Suggestions & Chat */}
-                <div className="w-80 flex flex-col bg-[#070b14] border-l border-white/5">
+                <div className="w-[calc(100vw-72px)] md:w-80 flex-shrink-0 snap-center flex flex-col bg-[#070b14] border-l border-white/5">
                   <div className="h-12 bg-white/5 border-b border-white/5 flex items-center justify-between px-6 flex-shrink-0">
                     <div className="flex items-center gap-2">
                       <div className="text-[10px] font-black text-emerald-500 tracking-widest uppercase">AI SUGGESTIONS</div>
@@ -3123,6 +3340,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                     </div>
                   </div>
                 </div>
+                </div> {/* End sliding panels wrapper */}
               </motion.div>
             )}
 
@@ -3170,59 +3388,131 @@ Paragraph: [Detailed rationale of principle of law and application]
             )}
 
             {view === 'read' && (
-              <motion.div key="read" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full p-6 flex gap-6">
-                <div className="w-1/2 flex flex-col gap-4">
-                  <div className="flex-1 bg-black rounded-3xl overflow-hidden relative border border-white/10">
-                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                    <canvas ref={canvasRef} className="hidden" />
-                    {scanPhase === 'processing' && (
-                      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
-                        <div className="flex flex-col items-center gap-3">
-                          <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                          <div className="text-xs font-black tracking-widest uppercase text-indigo-400">Analyzing Document</div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-3">
-                    <button onClick={scanPhase === 'live' ? captureScan : startScan} className="flex-1 py-4 bg-emerald-600 rounded-2xl font-bold flex items-center justify-center gap-2">
-                      {scanPhase === 'live' ? <Camera size={20} /> : <Play size={20} />}
-                      {scanPhase === 'live' ? 'Capture & Read' : 'Start Camera'}
-                    </button>
-                    {scannedText && (
-                      <button onClick={() => speakResponse({ text: scannedText, model: "OCR" })} className="p-4 bg-indigo-600 rounded-2xl">
-                        <Volume2 size={24} />
-                      </button>
-                    )}
-                    {scannedText && (
-                      <button 
-                        onClick={() => {
-                          setDraftFacts(prev => prev + (prev.trim() ? "\n\n" : "") + scannedText);
-                          setView('drafting');
-                          setEnlargedElement('facts');
-                        }} 
-                        className="p-4 bg-emerald-600 rounded-2xl"
-                        title="Send to Drafting Facts"
-                      >
-                        <Plus size={24} />
-                      </button>
-                    )}
-                  </div>
+              <motion.div key="read" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full p-3 md:p-6 flex flex-col overflow-hidden">
+                {/* Mobile Slider Navigation */}
+                <div className="flex md:hidden bg-[#090e18] border border-white/10 p-2 rounded-2xl justify-around items-center shrink-0 z-30 select-none mb-3">
+                  <button 
+                    onClick={() => scrollToReadPanel(0)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeReadPanel === 0 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    1. Camera Scanner
+                  </button>
+                  <div className="text-slate-800 text-[10px] font-bold">•</div>
+                  <button 
+                    onClick={() => scrollToReadPanel(1)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeReadPanel === 1 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    2. Extracted Result
+                  </button>
                 </div>
-                <div className="flex-1 bg-slate-900/50 border border-white/5 rounded-3xl p-6 overflow-y-auto relative">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Extracted Text</div>
-                    {scannedText && <button onClick={() => setScannedText("")} className="text-slate-500 hover:text-white text-[10px] uppercase font-black tracking-widest">Clear</button>}
+
+                <div 
+                  ref={readContainerRef}
+                  onScroll={handleReadScroll}
+                  className="flex-1 flex flex-row overflow-x-auto md:overflow-hidden snap-x snap-mandatory scroll-smooth custom-scrollbar gap-6"
+                >
+                  <div className="w-[calc(100vw-72px)] md:w-1/2 flex-shrink-0 snap-center flex flex-col gap-4">
+                    <div className="flex-1 bg-black rounded-3xl overflow-hidden relative border border-white/10">
+                      <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                      <canvas ref={canvasRef} className="hidden" />
+                      {scanPhase === 'processing' && (
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                          <div className="flex flex-col items-center gap-3">
+                            <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                            <div className="text-xs font-black tracking-widest uppercase text-indigo-400">Analyzing Document</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={scanPhase === 'live' ? captureScan : startScan} className="flex-1 py-4 bg-emerald-600 rounded-2xl font-bold flex items-center justify-center gap-2">
+                        {scanPhase === 'live' ? <Camera size={20} /> : <Play size={20} />}
+                        {scanPhase === 'live' ? 'Capture & Read' : 'Start Camera'}
+                      </button>
+                      {scannedText && (
+                        <button onClick={() => speakResponse({ text: scannedText, model: "OCR" })} className="p-4 bg-indigo-600 rounded-2xl">
+                          <Volume2 size={24} />
+                        </button>
+                      )}
+                      {scannedText && (
+                        <button 
+                          onClick={() => {
+                            setDraftFacts(prev => prev + (prev.trim() ? "\n\n" : "") + scannedText);
+                            setView('drafting');
+                            setEnlargedElement('facts');
+                          }} 
+                          className="p-4 bg-emerald-600 rounded-2xl"
+                          title="Send to Drafting Facts"
+                        >
+                          <Plus size={24} />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-sm text-slate-400 font-mono leading-relaxed whitespace-pre-wrap">{scannedText || "Waiting for capture..."}</div>
+                  <div className="w-[calc(100vw-72px)] md:w-auto md:flex-1 flex-shrink-0 snap-center bg-slate-900/50 border border-white/5 rounded-3xl p-6 overflow-y-auto relative">
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="text-[10px] font-black uppercase tracking-widest text-emerald-500 font-mono">Extracted Text</div>
+                      {scannedText && <button onClick={() => setScannedText("")} className="text-slate-500 hover:text-white text-[10px] uppercase font-black tracking-widest font-sans">Clear</button>}
+                    </div>
+                    <div className="text-sm text-slate-400 font-mono leading-relaxed whitespace-pre-wrap">{scannedText || "Waiting for capture..."}</div>
+                  </div>
                 </div>
               </motion.div>
             )}
 
             {view === 'convert' && (
-              <motion.div key="convert" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full p-6 flex gap-6 overflow-hidden">
-                {/* Left Sidebar: Tools & Image Preview */}
-                <div className="w-[280px] flex flex-col gap-4 flex-shrink-0 overflow-y-auto pr-2 custom-scrollbar">
+              <motion.div key="convert" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full p-3 md:p-6 flex flex-col overflow-hidden">
+                {/* Mobile Slider Navigation */}
+                <div className="flex md:hidden bg-[#090e18] border border-white/10 p-2 rounded-2xl justify-around items-center shrink-0 z-30 select-none mb-3">
+                  <button 
+                    onClick={() => scrollToConvertPanel(0)}
+                    className={`px-2 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeConvertPanel === 0 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    1. Upload/Tools
+                  </button>
+                  <div className="text-slate-800 text-[10px] font-bold">•</div>
+                  <button 
+                    onClick={() => scrollToConvertPanel(1)}
+                    className={`px-2 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeConvertPanel === 1 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    2. Preview
+                  </button>
+                  <div className="text-slate-800 text-[10px] font-bold">•</div>
+                  <button 
+                    onClick={() => scrollToConvertPanel(2)}
+                    className={`px-2 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeConvertPanel === 2 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    3. AI / Steps
+                  </button>
+                </div>
+
+                <div 
+                  ref={convertContainerRef}
+                  onScroll={handleConvertScroll}
+                  className="flex-1 flex flex-row overflow-x-auto md:overflow-hidden snap-x snap-mandatory scroll-smooth custom-scrollbar gap-6"
+                >
+                  {/* Left Sidebar: Tools & Image Preview */}
+                  <div className="w-[calc(100vw-72px)] md:w-[280px] flex-shrink-0 snap-center flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar pb-4">
                   <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-6">
                     <div className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-4">Nexus Tools</div>
                     <h3 className="text-2xl font-black italic mb-6">Doc<span className="text-slate-500">Converter</span></h3>
@@ -3285,7 +3575,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                 </div>
 
                 {/* Main Area: Document Text Preview */}
-                <div className="flex-1 bg-slate-900/50 border border-white/5 rounded-3xl p-8 flex flex-col overflow-hidden relative">
+                <div className="w-[calc(100vw-72px)] md:w-auto md:flex-1 flex-shrink-0 snap-center bg-slate-900/50 border border-white/5 rounded-3xl p-6 md:p-8 flex flex-col overflow-hidden relative">
                   <div className="flex justify-between items-center mb-6">
                     <div className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Document Preview</div>
                     <div className="flex items-center gap-4">
@@ -3338,7 +3628,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                 </AnimatePresence>
 
                 {/* Right Sidebar: AI Translation & Arrangements */}
-                <div className="w-[340px] flex flex-col gap-6 flex-shrink-0 overflow-y-auto pr-2 custom-scrollbar">
+                <div className="w-[calc(100vw-72px)] md:w-[340px] flex flex-col gap-6 flex-shrink-0 overflow-y-auto pr-2 custom-scrollbar pb-4">
                   {converterStatus === 'done' && (
                     <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-6 flex flex-col gap-4">
                       <div className="flex justify-between items-center">
@@ -3410,24 +3700,25 @@ Paragraph: [Detailed rationale of principle of law and application]
                     </div>
                   </div>
                 </div>
+                </div> {/* End sliding panels wrapper */}
               </motion.div>
             )}
             {view === 'instructions' && (
-              <motion.div key="instructions" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-100 p-8 flex flex-col gap-8 overflow-hidden">
-                <div className="flex justify-between items-end">
+              <motion.div key="instructions" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full p-4 md:p-8 flex flex-col gap-4 md:gap-8 overflow-hidden">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 md:gap-6">
                   <div>
                     <div className="text-[10px] font-black text-amber-500 tracking-[0.2em] mb-2 uppercase">System Configuration</div>
-                    <h2 className="text-5xl font-black italic text-slate-200">Auto-Responder<span className="text-slate-500">Rules</span></h2>
+                    <h2 className="text-4xl md:text-5xl font-black italic text-slate-200">Auto-Responder<span className="text-slate-500">Rules</span></h2>
                   </div>
-                  <div className="flex items-center gap-6 bg-white/5 border border-white/10 rounded-2xl px-6 py-4">
-                    <div className="flex items-center gap-3 pr-6 border-r border-white/10">
+                  <div className="w-full md:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4 md:px-6 md:py-4">
+                    <div className="flex items-center justify-between sm:justify-start gap-3 pr-0 sm:pr-6 border-r-0 sm:border-r border-white/10 pb-3 sm:pb-0 border-b sm:border-b-0 border-white/5">
                       <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Enable auto answering?</span>
-                      <button onClick={() => setAutoAnswerEnabled(!autoAnswerEnabled)} className={`w-10 h-5 rounded-full relative transition-all ${autoAnswerEnabled ? 'bg-indigo-500' : 'bg-slate-800'}`}>
+                      <button onClick={() => setAutoAnswerEnabled(!autoAnswerEnabled)} className={`w-10 h-5 rounded-full relative transition-all flex-shrink-0 ${autoAnswerEnabled ? 'bg-indigo-500' : 'bg-slate-800'}`}>
                         <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${autoAnswerEnabled ? 'right-0.5' : 'left-0.5'}`} />
                       </button>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
+                    <div className="flex items-center justify-between sm:justify-start gap-4">
+                      <div className="text-left sm:text-right">
                         <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Rules</div>
                         <div className="text-2xl font-black text-indigo-500">{callInstructions.length}</div>
                       </div>
@@ -3438,9 +3729,38 @@ Paragraph: [Detailed rationale of principle of law and application]
                   </div>
                 </div>
 
-                <div className="flex-1 flex gap-8 overflow-hidden">
+                {/* Mobile Slider Navigation */}
+                <div className="flex md:hidden bg-[#090e18] border border-white/10 p-2 rounded-2xl justify-around items-center shrink-0 z-30 select-none mb-2">
+                  <button 
+                    onClick={() => scrollToInstructionsPanel(0)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeInstructionsPanel === 0 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    1. Rule Registry
+                  </button>
+                  <div className="text-slate-800 text-[10px] font-bold">•</div>
+                  <button 
+                    onClick={() => scrollToInstructionsPanel(1)}
+                    className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                      activeInstructionsPanel === 1 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                        : 'text-slate-400 hover:text-white bg-white/5'
+                    }`}
+                  >
+                    2. Add New Rule
+                  </button>
+                </div>
+
+                <div 
+                  ref={instructionsContainerRef}
+                  onScroll={handleInstructionsScroll}
+                  className="flex-1 flex flex-row overflow-x-auto md:overflow-hidden snap-x snap-mandatory scroll-smooth custom-scrollbar gap-8"
+                >
                   {/* Rules List */}
-                  <div className="flex-1 bg-slate-900/50 border border-white/5 rounded-[40px] p-8 flex flex-col overflow-hidden">
+                  <div className="w-[calc(100vw-72px)] md:w-auto md:flex-1 flex-shrink-0 snap-center bg-slate-900/50 border border-white/5 rounded-[40px] p-6 md:p-8 flex flex-col overflow-hidden">
                     <div className="flex justify-between items-center mb-8">
                       <div className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Instruction Registry</div>
                       <div className="flex items-center gap-2 text-slate-500 text-[10px] font-bold">
@@ -3485,7 +3805,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                   </div>
 
                   {/* Add Rule Sidebar */}
-                  <div className="w-[400px] flex flex-col gap-6">
+                  <div className="w-[calc(100vw-72px)] md:w-[400px] flex-shrink-0 snap-center flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-4">
                     <div className="bg-slate-900/50 border border-white/5 rounded-[40px] p-8">
                       <div className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-8">Deploy New Rule</div>
                       
