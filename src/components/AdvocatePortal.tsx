@@ -117,20 +117,100 @@ const S = {
 };
 
 const NeuralFlow = () => (
-  <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20 z-0">
-    <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-amber-500/10" />
-    <svg className="absolute w-full h-full" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+  <div className="absolute top-0 left-0 right-0 h-[320px] overflow-hidden pointer-events-none opacity-30 z-0">
+    <style>{`
+      @keyframes flowWaveA {
+        0% { transform: translateX(0) translateY(0) scaleY(1); }
+        50% { transform: translateX(-15%) translateY(-5px) scaleY(1.1); }
+        100% { transform: translateX(0) translateY(0) scaleY(1); }
+      }
+      @keyframes flowWaveB {
+        0% { transform: translateX(0) translateY(0) scaleY(1.05); }
+        50% { transform: translateX(12%) translateY(6px) scaleY(0.95); }
+        100% { transform: translateX(0) translateY(0) scaleY(1.05); }
+      }
+      @keyframes glowPulse {
+        0%, 100% { opacity: 0.25; filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.3)); }
+        50% { opacity: 0.55; filter: drop-shadow(0 0 16px rgba(139, 92, 246, 0.8)); }
+      }
+      @keyframes shimmerDot {
+        0%, 100% { transform: translate(150px, 120px); opacity: 0.2; }
+        40% { transform: translate(450px, 140px); opacity: 0.8; }
+        75% { transform: translate(750px, 110px); opacity: 0.4; }
+      }
+    `}</style>
+    <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/10 via-purple-500/5 to-transparent" />
+    <svg className="absolute w-[120%] h-full -left-[10%]" viewBox="0 0 1200 400" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="waveGrad1" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#6366f1" stopOpacity="0.1" />
+          <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#ec4899" stopOpacity="0.1" />
+        </linearGradient>
+        <linearGradient id="waveGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.05" />
+          <stop offset="30%" stopColor="#3b82f6" stopOpacity="0.3" />
+          <stop offset="70%" stopColor="#10b981" stopOpacity="0.3" />
+          <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.05" />
+        </linearGradient>
+      </defs>
+      
+      {/* Animated wave 1 */}
       <path
-        d="M0,500 Q250,400 500,500 T1000,500"
-        stroke="rgba(99, 102, 241, 0.2)"
-        strokeWidth="2"
+        d="M 0,150 C 200,80 400,220 600,150 C 800,80 1000,220 1200,150 L 1200,400 L 0,400 Z"
         fill="none"
+        stroke="url(#waveGrad1)"
+        strokeWidth="3.5"
+        className="transition-all"
+        style={{
+          animation: 'flowWaveA 14s ease-in-out infinite, glowPulse 7s ease-in-out infinite',
+          transformOrigin: '50% 50%'
+        }}
       />
+      
+      {/* Animated wave 2 */}
       <path
-        d="M0,600 Q250,500 500,600 T1000,600"
-        stroke="rgba(245, 158, 11, 0.1)"
-        strokeWidth="1"
+        d="M 0,180 C 150,220 350,110 550,180 C 750,250 950,110 1200,180"
         fill="none"
+        stroke="url(#waveGrad2)"
+        strokeWidth="2"
+        style={{
+          animation: 'flowWaveB 18s ease-in-out infinite',
+          transformOrigin: '50% 50%'
+        }}
+      />
+
+      {/* Third finer cyber grid wave */}
+      <path
+        d="M 0,120 Q 300,60 600,120 T 1200,120"
+        fill="none"
+        stroke="rgba(168, 85, 247, 0.15)"
+        strokeWidth="1.5"
+        strokeDasharray="6 3"
+        style={{
+          animation: 'flowWaveA 22s linear infinite',
+          transformOrigin: '50% 50%'
+        }}
+      />
+
+      {/* Small floating energy particles along the waves */}
+      <circle
+        r="4"
+        fill="#8b5cf6"
+        className="shadow-lg blur-[1px]"
+        style={{
+          animation: 'shimmerDot 10s ease-in-out infinite',
+          filter: 'drop-shadow(0 0 8px #c084fc)'
+        }}
+      />
+      <circle
+        r="2.5"
+        fill="#3b82f6"
+        style={{
+          animation: 'shimmerDot 14s ease-in-out infinite',
+          animationDelay: '-4s',
+          filter: 'drop-shadow(0 0 6px #60a5fa)'
+        }}
       />
     </svg>
   </div>
@@ -972,31 +1052,70 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
     }, 10000);
   };
 
-  const startLocalMalayalamSTT = async () => {
+  const startLocalSTT = async () => {
     setVoiceAiOn(true);
     setVoiceAiStatus('listening');
-    setVoiceAiTranscript("Local STT Active (Malayalam)...");
+    const displayLang = voiceLang === 'ml-IN' ? "Malayalam" : "English";
+    setVoiceAiTranscript(`Local Whisper STT Active (${displayLang})...`);
     
+    const engine = MalayalamEngine.getInstance();
+    if (!engine.getStatus().sttReady) {
+      setVoiceAiStatus('thinking');
+      setVoiceAiTranscript("Initializing local Whisper model weights. Please wait...");
+      try {
+        await handleDownloadWhisper(false);
+      } catch (err) {
+        console.error("Local STT initialization failed:", err);
+        setVoiceAiTranscript("Error starting Whisper. Falling back to default Web Speech...");
+        setSttEngine('webspeech');
+        setTimeout(() => { if (voiceAiOnRef.current) startVoiceAi(); }, 1500);
+        return;
+      }
+    }
+
     try {
-      const audio = await MalayalamEngine.getInstance().recordAudio(5000);
+      const audio = await engine.recordAudio(5000);
       if (audio && voiceAiOnRef.current) {
         setVoiceAiStatus('thinking');
-        const text = await MalayalamEngine.getInstance().transcribe(audio);
+        setVoiceAiTranscript("WhisperMini is transcribing...");
+        const langCode = voiceLang === 'ml-IN' ? 'malayalam' : 'english';
+        const text = await engine.transcribe(audio, langCode);
         if (text && voiceAiOnRef.current) {
           setVoiceAiTranscript(text);
           processVoiceCommand(text);
         } else if (voiceAiOnRef.current) {
-          startLocalMalayalamSTT(); // Restart if no text
+          startLocalSTT(); // Loop restart
         }
       }
     } catch (err) {
       console.error("Local STT Error:", err);
-      setVoiceAiOn(false);
+      if (voiceAiOnRef.current) {
+        startLocalSTT();
+      }
     }
   };
 
+  const startLocalMalayalamSTT = async () => {
+    await startLocalSTT();
+  };
+
   const startVoiceAi = async () => {
+    if (sttEngine === 'whisper') {
+      startLocalSTT();
+      return;
+    }
+
     if (!navigator.onLine) {
+      if (sttEngine === 'chirp3' && whisperReady) {
+        setVoiceAiStatus('thinking');
+        setVoiceAiTranscript("Chirp 3 Cloud Offline. Seamlessly routing to local on-device Whisper engine...");
+        setTimeout(() => {
+          if (voiceAiOnRef.current) {
+            startLocalSTT();
+          }
+        }, 1200);
+        return;
+      }
       if (voiceLang === 'ml-IN' && malayalamStatus.sttReady) {
         startLocalMalayalamSTT();
         return;
@@ -1045,7 +1164,7 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
 
     setVoiceAiOn(true);
     setVoiceAiStatus('listening');
-    setVoiceAiTranscript("Listening...");
+    setVoiceAiTranscript(sttEngine === 'chirp3' ? "Listening (Chirp 3 Premium)..." : "Listening...");
     setVoiceAiReply("");
     
     if (!isMicActive) {
@@ -1061,7 +1180,7 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
     let finalTranscript = "";
     recognition.onstart = () => {
       console.log("Speech recognition started (Continuous)");
-      setVoiceAiStatus('listening');
+      setVoiceAiStatus(sttEngine === 'chirp3' ? 'Listening (Chirp 3)' : 'listening');
       // Reset network error counter when successfully started
       networkErrorCountRef.current = 0;
     };
@@ -1094,7 +1213,8 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
         setVoiceAiStatus('listening');
       }
 
-      if (voiceAiStatusRef.current !== 'listening') return;
+      const isListening = voiceAiStatusRef.current === 'listening' || voiceAiStatusRef.current.includes('Listening');
+      if (!isListening) return;
 
       let interimTranscript = "";
       for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -1119,7 +1239,8 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
       // If we have any text, wait for 1.5s of silence before processing
       if (currentText.length > 2) {
         silenceTimerRef.current = setTimeout(() => {
-          if (voiceAiStatusRef.current === 'listening') {
+          const stillListening = voiceAiStatusRef.current === 'listening' || voiceAiStatusRef.current.includes('Listening');
+          if (stillListening) {
             processVoiceCommand(currentText);
             finalTranscript = ""; // Reset for next utterance
           }
@@ -1134,6 +1255,17 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
       }
       console.error("Speech Recognition Error:", event.error);
       
+      if (sttEngine === 'chirp3' && (event.error === 'network' || event.error === 'not-allowed')) {
+        console.warn("Chirp 3 Cloud connection dropped. Initiating on-device Whisper hybrid fallback...");
+        setVoiceAiTranscript("Chirp 3 Cloud lost. Seamlessly running Local Whisper nodes...");
+        setTimeout(() => {
+          if (voiceAiOnRef.current) {
+            startLocalSTT();
+          }
+        }, 1200);
+        return;
+      }
+
       if (event.error === 'not-allowed') {
         alert("Microphone access denied. Please check your browser permissions.");
         stopVoiceAi();
@@ -2720,7 +2852,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                 >
                   {/* Left Column */}
                   <div className="w-[calc(100vw-72px)] md:w-[400px] flex-shrink-0 snap-center flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-1 pb-4">
-                    <div style={S.card} className="relative overflow-hidden">
+                    <div style={S.card} className="relative overflow-hidden flex-shrink-0">
                       <div className="text-[10px] font-black text-amber-500 tracking-[0.2em] mb-2">HYBRID AI NODE</div>
                       <h2 className="text-4xl font-black italic text-slate-200 mb-8">Command<span className="text-slate-500">Center</span></h2>
                       
