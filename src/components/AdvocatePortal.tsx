@@ -2634,7 +2634,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                           <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
                         </div>
                         
-                        <div className="flex gap-3 mb-8">
+                        <div className="flex gap-3 mb-4">
                           <button onClick={() => setVoiceAiOn(!voiceAiOn)} className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${voiceAiOn ? 'bg-red-500 text-white' : 'bg-indigo-500 text-white shadow-[0_4px_15px_rgba(99,102,241,0.3)]'}`}>
                             {voiceAiOn ? 'Stop' : 'Start'}
                           </button>
@@ -2644,6 +2644,37 @@ Paragraph: [Detailed rationale of principle of law and application]
                             >
                               {isDownloading ? 'Downloading...' : downloadProgress === 100 ? 'Reload Neural Weights' : 'Download Neural weights'}
                             </button>
+                        </div>
+
+                        {/* Local Whisper Speech-to-Text Model Auto-Download Progress */}
+                        <div className="mb-6 p-3 bg-[#0a0f1d] border border-white/5 rounded-2xl space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${whisperReady ? 'bg-emerald-500' : 'bg-indigo-500 animate-pulse'}`} />
+                              Offline Whisper STT
+                            </span>
+                            <span className={`text-[9px] font-black uppercase tracking-wider ${whisperReady ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                              {whisperReady ? 'ACTIVE' : whisperProgress > 0 && whisperProgress < 100 ? `${whisperProgress}%` : 'DOWNLOADING'}
+                            </span>
+                          </div>
+                          <div className="h-[3px] w-full bg-slate-950 overflow-hidden rounded-full border border-white/5">
+                            <motion.div 
+                              className="h-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" 
+                              animate={{ width: `${whisperProgress}%` }} 
+                              transition={{ ease: 'easeOut' }} 
+                            />
+                          </div>
+                          <div className="text-[10px] text-slate-400 leading-relaxed italic">
+                            {whisperMessage}
+                          </div>
+                          {!whisperReady && !isWhisperDownloading && (
+                            <button
+                              onClick={() => handleDownloadWhisper(true)}
+                              className="w-full mt-1 py-1.5 bg-indigo-600/20 hover:bg-indigo-600 hover:text-white border border-indigo-500/20 text-indigo-400 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                              Retry Whisper STT Download
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex justify-between items-center mb-2">
