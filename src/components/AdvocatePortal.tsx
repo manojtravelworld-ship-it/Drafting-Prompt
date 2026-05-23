@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { ParallelDownloader } from "../lib/parallel-downloader";
+import { get } from "idb-keyval";
 import { 
   Mic, Camera, FileText, Users, Bell, HelpCircle, 
   BookOpen, Edit3, Layout, MessageSquare, Settings, 
@@ -335,6 +337,34 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   const [newDirectiveName, setNewDirectiveName] = useState('');
   const [newDirectivePrompt, setNewDirectivePrompt] = useState('');
   const [showAddDirectiveForm, setShowAddDirectiveForm] = useState(false);
+
+  const [systemDirectives, setSystemDirectives] = useState<{ label: string; text: string }[]>(() => {
+    try {
+      const stored = localStorage.getItem('nexus_system_directives');
+      return stored ? JSON.parse(stored) : [
+        { label: "Kerala High Court Pleading Format", text: "Format this as a formal Writ Petition before the Hon'ble High Court of Kerala. Emphasize appropriate constitutional articles, add boilerplate headers, verification seals, and advocate signing margins." },
+        { label: "Civil Injunction Restraint Specifics", text: "Formulate a standard relief of temporary injunction. Anchor it on prime principles: prima facie case, balance of convenience, and irreparable injury." },
+        { label: "Highlight Lack Of Mens Rea / Intent", text: "Structure a strong defense emphasizing absolute lack of intention or knowledge. Elaborate the chronology of sequences point-by-point to substantiate lack of culpability." },
+        { label: "Formal Show-cause Representation", text: "Prepare a detailed reply to the show-cause notice. Respond in a highly professional, respectful, yet robust legal defense style quoting standard administrative precedents." }
+      ];
+    } catch (e) {
+      return [
+        { label: "Kerala High Court Pleading Format", text: "Format this as a formal Writ Petition before the Hon'ble High Court of Kerala. Emphasize appropriate constitutional articles, add boilerplate headers, verification seals, and advocate signing margins." },
+        { label: "Civil Injunction Restraint Specifics", text: "Formulate a standard relief of temporary injunction. Anchor it on prime principles: prima facie case, balance of convenience, and irreparable injury." },
+        { label: "Highlight Lack Of Mens Rea / Intent", text: "Structure a strong defense emphasizing absolute lack of intention or knowledge. Elaborate the chronology of sequences point-by-point to substantiate lack of culpability." },
+        { label: "Formal Show-cause Representation", text: "Prepare a detailed reply to the show-cause notice. Respond in a highly professional, respectful, yet robust legal defense style quoting standard administrative precedents." }
+      ];
+    }
+  });
+
+  const saveSystemDirectives = (updated: { label: string; text: string }[]) => {
+    setSystemDirectives(updated);
+    try {
+      localStorage.setItem('nexus_system_directives', JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const saveCustomDirectives = (updated: { name: string; prompt: string }[]) => {
     setCustomDirectives(updated);
@@ -730,6 +760,12 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   const [isBrain2Downloading, setIsBrain2Downloading] = useState(false);
   const [brain2Message, setBrain2Message] = useState('Nexus Gemma 4 E4B · ~2.1 GB · Q3_K_M · State-of-the-Art Legal Reasoning');
   const [brain2Ready, setBrain2Ready] = useState(false);
+
+  // Whisper Speech-to-Text Model States
+  const [whisperProgress, setWhisperProgress] = useState(0);
+  const [isWhisperDownloading, setIsWhisperDownloading] = useState(false);
+  const [whisperMessage, setWhisperMessage] = useState('Whisper Local Model · ~547 MB · ggml-large-v3-turbo-q5_0');
+  const [whisperReady, setWhisperReady] = useState(false);
 
   // --- Hardware Scan & RAM constraints ---
   const [simulatedDevice, setSimulatedDevice] = useState<'laptop' | 'mobile'>(() => {
@@ -1821,6 +1857,54 @@ Please repeat or acknowledge what they narrated to confirm you received it corre
     setMalayalamStatus(engine.getStatus());
   };
 
+  const handleDownloadWhisper = async (force = false) => {
+    if (isWhisperDownloading) return;
+
+    const key = "ggml-large-v3-turbo-q5_0";
+    const storageKey = 'nexus-model-' + key;
+
+    try {
+      if (!force) {
+        const cache = await get(storageKey);
+        if (cache instanceof Blob) {
+          setWhisperProgress(100);
+          setWhisperReady(true);
+          setWhisperMessage("✅ Local Whisper.cpp model cached & active.");
+          return;
+        }
+      }
+
+      setIsWhisperDownloading(true);
+      setWhisperProgress(1);
+      setWhisperMessage("🚀 Initiating Whisper.cpp Large v3 Turbo download...");
+      setWhisperReady(false);
+
+      const url = "https://huggingface.co/Kichu123/ggml-large-v3-turbo-q5_0.bin/resolve/main/ggml-large-v3-turbo-q5_0.bin";
+      
+      await ParallelDownloader.download(
+        url,
+        key,
+        4,
+        (pct, loaded, total) => {
+          setWhisperProgress(pct);
+          const loadedMB = Math.round(loaded / 1024 / 1024);
+          const totalMB = total > 0 ? `${Math.round(total / 1024 / 1024)} MB` : "unknown MB";
+          setWhisperMessage(`📥 Torrenting model: ${loadedMB} MB / ${totalMB} (${pct}%)`);
+        }
+      );
+
+      setWhisperProgress(100);
+      setWhisperReady(true);
+      setWhisperMessage("✅ Local Whisper.cpp model downloaded successfully.");
+    } catch (err) {
+      console.error("Whisper download error:", err);
+      setWhisperProgress(0);
+      setWhisperMessage(`⚠️ Error: ${(err as Error).message}. Check neural connection.`);
+    } finally {
+      setIsWhisperDownloading(false);
+    }
+  };
+
   // Auto-download removed; user initiates from Brain2 tab
 
   useEffect(() => {
@@ -1841,6 +1925,9 @@ Please repeat or acknowledge what they narrated to confirm you received it corre
       }
       setAiStatus(aiEngine.getStatus());
       setMalayalamStatus(MalayalamEngine.getInstance().getStatus());
+      
+      // Auto-trigger Whisper local model download on app open
+      handleDownloadWhisper();
     };
     init();
   }, []);
@@ -2947,35 +3034,37 @@ Paragraph: [Detailed rationale of principle of law and application]
                   <button className="bg-indigo-600 px-6 py-2.5 rounded-2xl font-black text-xs tracking-widest uppercase">Add Client</button>
                 </div>
                 <div style={S.card} className="overflow-hidden p-0">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-white/5">
-                        <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Name</th>
-                        <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Case Number</th>
-                        <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Court</th>
-                        <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Next Date</th>
-                        <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {clients.map(c => (
-                        <tr key={c.id} className="hover:bg-white/5 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="text-sm font-bold">{c.name}</div>
-                            <div className="text-[10px] text-slate-500">{c.phone}</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded text-[10px] font-black">{c.case_number}</span>
-                          </td>
-                          <td className="px-6 py-4 text-xs text-slate-400">{c.court}</td>
-                          <td className="px-6 py-4 text-xs text-emerald-500 font-bold">{c.next_date}</td>
-                          <td className="px-6 py-4">
-                            <button className="text-slate-500 hover:text-white transition-colors"><Edit3 size={16} /></button>
-                          </td>
+                  <div className="overflow-x-auto custom-scrollbar">
+                    <table className="w-full min-w-[600px] text-left">
+                      <thead>
+                        <tr className="border-b border-white/5">
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Name</th>
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Case Number</th>
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Court</th>
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Next Date</th>
+                          <th className="px-6 py-4 text-[9px] font-black text-slate-500 uppercase tracking-widest">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {clients.map(c => (
+                          <tr key={c.id} className="hover:bg-white/5 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="text-sm font-bold">{c.name}</div>
+                              <div className="text-[10px] text-slate-500">{c.phone}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded text-[10px] font-black">{c.case_number}</span>
+                            </td>
+                            <td className="px-6 py-4 text-xs text-slate-400">{c.court}</td>
+                            <td className="px-6 py-4 text-xs text-emerald-500 font-bold">{c.next_date}</td>
+                            <td className="px-6 py-4">
+                              <button className="text-slate-500 hover:text-white transition-colors"><Edit3 size={16} /></button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -3955,7 +4044,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                 </div>
 
                 {/* Two-column download cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
                   {/* Brain1 Card */}
                   <div id="brain1-card" className={`rounded-[32px] p-6 flex flex-col gap-4 border transition-all ${
@@ -4135,6 +4224,66 @@ Paragraph: [Detailed rationale of principle of law and application]
                         )}
                       </div>
                     )}
+                  </div>
+
+                  {/* Whisper Card */}
+                  <div id="whisper-card" className="rounded-[32px] p-6 flex flex-col gap-4 border transition-all bg-indigo-500/5 border-indigo-500/20">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">STT Brain · Offline</div>
+                        <div className="text-lg font-black text-slate-200 flex items-center gap-2 font-sans">
+                          Whisper Large v3
+                        </div>
+                        <div className="text-[10px] text-slate-400">ggml-large-v3-turbo-q5_0 · ~547 MB</div>
+                      </div>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${whisperReady ? 'bg-indigo-500/20 text-indigo-400' : 'bg-white/5 text-slate-500'}`}>
+                        <Mic size={18} />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Format', value: 'GGML / Binary' },
+                        { label: 'Quant', value: 'Q5_0 (High Quality)' },
+                        { label: 'Size', value: '~547 MB' },
+                        { label: 'RAM needed', value: '~1.0 GB' },
+                        { label: 'Platform', value: 'Local Voice AI' },
+                        { label: 'Auto-load', value: 'On App Open' },
+                      ].map((item, i) => (
+                        <div key={i} className="p-2 bg-white/5 rounded-xl">
+                          <div className="text-[8px] font-black text-slate-500 uppercase">{item.label}</div>
+                          <div className="text-[10px] font-bold text-slate-300">{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between">
+                        <span className="text-[9px] text-slate-400">Download progress</span>
+                        <span className={`text-[9px] font-black uppercase ${whisperReady ? 'text-indigo-400' : 'text-slate-500'}`}>
+                          {whisperReady ? 'LOADED' : whisperProgress > 0 && whisperProgress < 100 ? `${whisperProgress}%` : 'PENDING'}
+                        </span>
+                      </div>
+                      <div className="h-[2px] w-full bg-transparent overflow-hidden border border-indigo-500/10 rounded-full">
+                        <motion.div className="h-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" animate={{ width: `${whisperProgress}%` }} transition={{ ease: 'easeOut' }} />
+                      </div>
+                      <div className="text-[8px] text-slate-500 italic min-h-[24px]">
+                        {whisperMessage}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleDownloadWhisper(true)}
+                      disabled={isWhisperDownloading}
+                      className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white disabled:text-white/60 font-black text-[10px] uppercase tracking-[0.15em] rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                    >
+                      {isWhisperDownloading
+                        ? <><RotateCcw size={14} className="animate-spin" /> Downloading...</>
+                        : whisperReady
+                          ? <><RotateCcw size={14} /> Redownload / Reload</>
+                          : <><Download size={14} /> Download Local Whisper</>
+                      }
+                    </button>
                   </div>
                 </div>
 
@@ -4662,57 +4811,100 @@ Paragraph: [Detailed rationale of principle of law and application]
 
                     <div className="space-y-2 max-h-[35vh] overflow-y-auto custom-scrollbar pr-1">
                       {/* Preloaded Presets */}
-                      {[
-                        { label: "Kerala High Court Pleading Format", text: "Format this as a formal Writ Petition before the Hon'ble High Court of Kerala. Emphasize appropriate constitutional articles, add boilerplate headers, verification seals, and advocate signing margins." },
-                        { label: "Civil Injunction Restraint Specifics", text: "Formulate a standard relief of temporary injunction. Anchor it on prime principles: prima facie case, balance of convenience, and irreparable injury." },
-                        { label: "Highlight Lack Of Mens Rea / Intent", text: "Structure a strong defense emphasizing absolute lack of intention or knowledge. Elaborate the chronology of sequences point-by-point to substantiate lack of culpability." },
-                        { label: "Formal Show-cause Representation", text: "Prepare a detailed reply to the show-cause notice. Respond in a highly professional, respectful, yet robust legal defense style quoting standard administrative precedents." }
-                      ].map((preset, idx) => (
-                        <button
-                          key={`static-${idx}`}
-                          onClick={() => setCustomPromptText(preset.text)}
-                          className="w-full text-left p-3 rounded-xl bg-white/5 hover:bg-white/10 text-[10px] text-slate-300 leading-relaxed border border-white/5 hover:border-indigo-500/30 transition-all text-xs block relative group"
-                        >
-                          <div className="font-bold text-indigo-300 mb-1 flex justify-between items-center">
-                            <span>{preset.label}</span>
-                            <span className="text-[7px] text-slate-500 font-mono tracking-widest uppercase">system</span>
+                      {systemDirectives.map((preset, idx) => {
+                        const isActive = customPromptText === preset.text;
+                        return (
+                          <div
+                            key={`static-${idx}`}
+                            className={`w-full relative group rounded-xl transition-all p-3 text-xs border ${
+                              isActive 
+                                ? 'bg-indigo-600/20 border-indigo-500 shadow-[0_0_12px_rgba(99,102,241,0.25)] ring-1 ring-indigo-500/30' 
+                                : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-indigo-500/30'
+                            }`}
+                          >
+                            <div className="flex justify-between items-start mb-1 gap-2">
+                              <button
+                                onClick={() => setCustomPromptText(preset.text)}
+                                className={`text-left font-bold flex-1 ${isActive ? 'text-indigo-300 font-extrabold' : 'text-indigo-400 hover:text-indigo-300'}`}
+                              >
+                                {preset.label}
+                              </button>
+                              <div className="flex items-center gap-1.5">
+                                {isActive ? (
+                                  <span className="flex items-center gap-1 text-[8px] bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded text-indigo-400 font-black tracking-widest uppercase">
+                                    <Check size={9} strokeWidth={3} /> ACTIVE
+                                  </span>
+                                ) : (
+                                  <span className="text-[7px] text-slate-500 font-mono tracking-widest uppercase">system</span>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    const updated = systemDirectives.filter((_, i) => i !== idx);
+                                    saveSystemDirectives(updated);
+                                  }}
+                                  className="text-slate-500 hover:text-red-400 p-0.5 transition-colors cursor-pointer"
+                                  title="Delete preset"
+                                >
+                                  <Trash size={12} />
+                                </button>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setCustomPromptText(preset.text)}
+                              className={`w-full text-left font-sans line-clamp-2 ${isActive ? 'text-slate-200' : 'text-slate-400'}`}
+                            >
+                              {preset.text}
+                            </button>
                           </div>
-                          <div className="line-clamp-2 text-slate-400 font-sans">{preset.text}</div>
-                        </button>
-                      ))}
+                        );
+                      })}
 
                       {/* User Custom Created presets */}
-                      {customDirectives.map((preset, idx) => (
-                        <div
-                          key={`custom-${idx}`}
-                          className="w-full relative group border border-[#818cf8]/10 rounded-xl bg-indigo-950/20 hover:bg-indigo-950/30 hover:border-indigo-500/30 transition-all p-3 text-xs"
-                        >
-                          <div className="flex justify-between items-start mb-1 gap-2">
+                      {customDirectives.map((preset, idx) => {
+                        const isActive = customPromptText === preset.prompt;
+                        return (
+                          <div
+                            key={`custom-${idx}`}
+                            className={`w-full relative group rounded-xl transition-all p-3 text-xs border ${
+                              isActive 
+                                ? 'bg-indigo-600/20 border-indigo-500 shadow-[0_0_12px_rgba(99,102,241,0.25)] ring-1 ring-indigo-500/30' 
+                                : 'bg-indigo-950/20 border-[#818cf8]/10 hover:bg-indigo-950/30 hover:border-indigo-500/30'
+                            }`}
+                          >
+                            <div className="flex justify-between items-start mb-1 gap-2">
+                              <button
+                                onClick={() => setCustomPromptText(preset.prompt)}
+                                className={`text-left font-bold flex-1 ${isActive ? 'text-indigo-300 font-extrabold' : 'text-emerald-400 hover:text-emerald-300'}`}
+                              >
+                                {preset.name}
+                              </button>
+                              <div className="flex items-center gap-1.5">
+                                {isActive && (
+                                  <span className="flex items-center gap-1 text-[8px] bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded text-indigo-400 font-black tracking-widest uppercase">
+                                    <Check size={9} strokeWidth={3} /> ACTIVE
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    const updated = customDirectives.filter((_, i) => i !== idx);
+                                    saveCustomDirectives(updated);
+                                  }}
+                                  className="text-slate-500 hover:text-red-400 p-0.5 transition-colors"
+                                  title="Delete custom preset"
+                                >
+                                  <Trash size={12} />
+                                </button>
+                              </div>
+                            </div>
                             <button
                               onClick={() => setCustomPromptText(preset.prompt)}
-                              className="text-left font-bold text-emerald-400 hover:text-emerald-300 flex-1"
+                              className={`w-full text-left font-sans line-clamp-2 ${isActive ? 'text-slate-200' : 'text-slate-400'}`}
                             >
-                              {preset.name}
-                            </button>
-                            <button
-                              onClick={() => {
-                                const updated = customDirectives.filter((_, i) => i !== idx);
-                                saveCustomDirectives(updated);
-                              }}
-                              className="text-slate-500 hover:text-red-400 p-0.5"
-                              title="Delete custom preset"
-                            >
-                              <Trash size={12} />
+                              {preset.prompt}
                             </button>
                           </div>
-                          <button
-                            onClick={() => setCustomPromptText(preset.prompt)}
-                            className="w-full text-left text-slate-400 font-sans line-clamp-2"
-                          >
-                            {preset.prompt}
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
