@@ -7,5 +7,9 @@
         { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" }
       ]
     }
+  ],
+  "rewrites": [
+    { "source": "/api/gemini/generate", "destination": "/api/gemini/generate" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
