@@ -1,19 +1,17 @@
-/**
- * MalayalamEngine
- * STT  → Web Speech API (SpeechRecognition, built into Chrome/Edge)
- * TTS  → Web Speech API (SpeechSynthesis) with ml-IN / en-IN fallback
- *
- * @xenova/transformers dependency removed entirely.
- */
+import { pipeline, env } from "@xenova/transformers";
+
+// Configure transformers.js
+env.allowLocalModels = false;
+env.useBrowserCache = true;
 
 export class MalayalamEngine {
   private static instance: MalayalamEngine;
-
-  // Web Speech API handles loading lazily — no pre-load needed
-  private ttsReady   = typeof window !== "undefined" && "speechSynthesis" in window;
-  private sttReady   = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
-  private ttsProgress = this.ttsReady ? 100 : 0;
-  private sttProgress = this.sttReady ? 100 : 0;
+  private ttsPipeline: any = null;
+  private sttPipeline: any = null;
+  private isTTSLoading = false;
+  private isSTTLoading = false;
+  private ttsProgress = 0;
+  private sttProgress = 0;
 
   private constructor() {}
 
@@ -26,105 +24,109 @@ export class MalayalamEngine {
 
   public getStatus() {
     return {
-      ttsReady:     this.ttsReady,
-      sttReady:     this.sttReady,
-      ttsProgress:  this.ttsProgress,
-      sttProgress:  this.sttProgress,
-      isTTSLoading: false,
-      isSTTLoading: false,
+      ttsReady: !!this.ttsPipeline,
+      sttReady: !!this.sttPipeline,
+      ttsProgress: this.ttsProgress,
+      sttProgress: this.sttProgress,
+      isTTSLoading: this.isTTSLoading,
+      isSTTLoading: this.isSTTLoading
     };
   }
 
-  /** No-op — Web Speech API needs no pre-loading */
+  /**
+   * Loads the Malayalam TTS model (MMS-TTS-MAL)
+   */
   public async loadTTS(onProgress?: (progress: number) => void) {
-    if (onProgress) onProgress(100);
-  }
+    if (this.ttsPipeline || this.isTTSLoading) return;
 
-  /** No-op — Web Speech API needs no pre-loading */
-  public async loadSTT(onProgress?: (progress: number) => void) {
-    if (onProgress) onProgress(100);
+    this.isTTSLoading = true;
+    try {
+      // MMS-TTS-MAL is a high-quality Malayalam TTS model compatible with Transformers.js
+      this.ttsPipeline = await pipeline('text-to-speech', 'Xenova/mms-tts-mal', {
+        progress_callback: (data: any) => {
+          if (data.status === 'progress') {
+            this.ttsProgress = Math.round(data.progress);
+            if (onProgress) onProgress(this.ttsProgress);
+          }
+        }
+      });
+      this.ttsProgress = 100;
+      if (onProgress) onProgress(100);
+      console.log("Malayalam TTS Model loaded successfully.");
+    } catch (error) {
+      console.error("Failed to load Malayalam TTS model:", error);
+      this.ttsPipeline = null;
+    } finally {
+      this.isTTSLoading = false;
+    }
   }
 
   /**
-   * Speak text using Web Speech API.
-   * Tries ml-IN voice first, falls back to en-IN, then any available voice.
+   * Loads the Malayalam STT model (Whisper Tiny)
+   */
+  public async loadSTT(onProgress?: (progress: number) => void) {
+    if (this.sttPipeline || this.isSTTLoading) return;
+
+    this.isSTTLoading = true;
+    try {
+      // Whisper Tiny is multilingual and performs well for Malayalam
+      this.sttPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny', {
+        progress_callback: (data: any) => {
+          if (data.status === 'progress') {
+            this.sttProgress = Math.round(data.progress);
+            if (onProgress) onProgress(this.sttProgress);
+          }
+        }
+      });
+      this.sttProgress = 100;
+      if (onProgress) onProgress(100);
+      console.log("Malayalam STT Model loaded successfully.");
+    } catch (error) {
+      console.error("Failed to load Malayalam STT model:", error);
+      this.sttPipeline = null;
+    } finally {
+      this.isSTTLoading = false;
+    }
+  }
+
+  /**
+   * Generates Malayalam speech from text
    */
   public async speak(text: string): Promise<AudioBuffer | null> {
-    if (!this.ttsReady) {
-      console.warn("SpeechSynthesis not supported in this browser.");
+    if (!this.ttsPipeline) return null;
+
+    try {
+      const output = await this.ttsPipeline(text);
+      return output.audio;
+    } catch (error) {
+      console.error("Malayalam TTS Inference Error:", error);
       return null;
     }
-
-    return new Promise((resolve) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-
-      const trySpeak = () => {
-        const voices = window.speechSynthesis.getVoices();
-        const mlVoice  = voices.find(v => v.lang === "ml-IN");
-        const enVoice  = voices.find(v => v.lang === "en-IN");
-        utterance.voice = mlVoice ?? enVoice ?? voices[0] ?? null;
-        utterance.lang  = mlVoice ? "ml-IN" : "en-IN";
-        utterance.rate  = 0.95;
-        utterance.pitch = 1.0;
-
-        utterance.onend   = () => resolve(null);
-        utterance.onerror = (e) => {
-          console.error("SpeechSynthesis error:", e);
-          resolve(null);
-        };
-
-        window.speechSynthesis.cancel(); // clear queue
-        window.speechSynthesis.speak(utterance);
-      };
-
-      // Voices may not be ready on first call
-      if (window.speechSynthesis.getVoices().length > 0) {
-        trySpeak();
-      } else {
-        window.speechSynthesis.onvoiceschanged = () => {
-          window.speechSynthesis.onvoiceschanged = null;
-          trySpeak();
-        };
-      }
-    });
   }
 
   /**
-   * Transcribe speech using Web Speech API.
-   * Returns the transcript string or null on failure.
+   * Transcribes speech from audio with optional language parameter
    */
-  public async transcribe(
-    _audio: any,
-    lang: string = "ml-IN"
-  ): Promise<string | null> {
-    if (!this.sttReady) {
-      console.warn("SpeechRecognition not supported in this browser.");
+  public async transcribe(audio: any, language: string = 'malayalam'): Promise<string | null> {
+    if (!this.sttPipeline) return null;
+
+    try {
+      const options: any = {
+        task: 'transcribe'
+      };
+      if (language && language !== 'auto') {
+        options.language = language;
+      }
+      const output = await this.sttPipeline(audio, options);
+      return output.text;
+    } catch (error) {
+      console.error("STT Inference Error:", error);
       return null;
     }
-
-    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-    const recognition = new SR();
-    recognition.lang = lang;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    return new Promise((resolve) => {
-      recognition.onresult = (event) => {
-        const transcript = event.results[0]?.[0]?.transcript ?? null;
-        resolve(transcript);
-      };
-      recognition.onerror = (e) => {
-        console.error("SpeechRecognition error:", e);
-        resolve(null);
-      };
-      recognition.onend = () => resolve(null);
-      recognition.start();
-    });
   }
 
   /**
-   * Record audio from microphone (raw Float32Array for compatibility).
-   * Used by callers that pass audio into transcribe().
+   * Helper to record audio from microphone for a fixed duration or until stopped
    */
   public async recordAudio(durationMs: number = 5000): Promise<Float32Array | null> {
     try {
@@ -132,12 +134,15 @@ export class MalayalamEngine {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       const source = audioContext.createMediaStreamSource(stream);
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      const chunks: Float32Array[] = [];
 
+      const chunks: Float32Array[] = [];
+      
       return new Promise((resolve) => {
         processor.onaudioprocess = (e) => {
-          chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+          const inputData = e.inputBuffer.getChannelData(0);
+          chunks.push(new Float32Array(inputData));
         };
+
         source.connect(processor);
         processor.connect(audioContext.destination);
 
@@ -147,10 +152,14 @@ export class MalayalamEngine {
           source.disconnect();
           audioContext.close();
 
-          const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+          // Combine chunks
+          const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
           const result = new Float32Array(totalLength);
           let offset = 0;
-          for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+          for (const chunk of chunks) {
+            result.set(chunk, offset);
+            offset += chunk.length;
+          }
           resolve(result);
         }, durationMs);
       });

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from 'react-markdown';
+import { useGeminiLive } from "../hooks/useGeminiLive";
 import { VoiceVisualizer } from './VoiceVisualizer';
 import { HybridAIEngine, AIMessage, AIResponse, cleanStreamingText } from "../lib/ai-engine";
 import { MalayalamEngine } from "../lib/malayalam-engine";
@@ -250,6 +251,7 @@ const parseCitations = (text: string): CaseCitation[] => {
 
 export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   const aiEngine = HybridAIEngine.getInstance();
+  const geminiLive = useGeminiLive();
   const [connectionType, setConnectionType] = useState<'wifi' | 'mobile' | 'unknown'>('unknown');
   const [view, setView] = useState("command");
   const [aiStatus, setAiStatus] = useState<any>(aiEngine.getStatus());
@@ -298,6 +300,14 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom of dynamic live voice transcript feed
+  useEffect(() => {
+    if (geminiLive.isConnected && transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [geminiLive.messages, geminiLive.isConnected]);
 
   const [draftPages, setDraftPages] = useState(["IN THE COURT OF THE DISTRICT JUDGE...\n\n[Drafting starts here]"]);
   const [deskInput, setDeskInput] = useState('');
@@ -310,12 +320,63 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   const [draftModel, setDraftModel] = useState('');
   const [draftSuggestions, setDraftSuggestions] = useState('');
   const [isDrafting, setIsDrafting] = useState(false);
+
+  const activeSpeechIdRef = useRef<any>(null);
+  const speechBaseFactsRef = useRef<string>('');
+
+  // Automatically type spoken client/advocate turn transcriptions into draftFacts in real-time
+  useEffect(() => {
+    if (!geminiLive.isConnected) {
+      activeSpeechIdRef.current = null;
+      speechBaseFactsRef.current = '';
+      return;
+    }
+
+    const messages = geminiLive.messages;
+    if (messages.length === 0) {
+      activeSpeechIdRef.current = null;
+      speechBaseFactsRef.current = draftFacts;
+      return;
+    }
+
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role === 'user') {
+      const turnId = lastMsg.timestamp;
+      
+      if (activeSpeechIdRef.current !== turnId) {
+        // Brand new user spoken segment, capture current draftFacts as base
+        speechBaseFactsRef.current = draftFacts;
+        activeSpeechIdRef.current = turnId;
+      }
+
+      const base = speechBaseFactsRef.current.trim();
+      const speech = lastMsg.text.trim();
+      if (speech) {
+        const appended = base ? `${base}\n${speech}` : speech;
+        setDraftFacts(appended);
+      }
+    } else {
+      // User is not speaking (model reply or standby), reset turn tracking
+      activeSpeechIdRef.current = null;
+      speechBaseFactsRef.current = draftFacts;
+    }
+  }, [geminiLive.messages, geminiLive.isConnected]);
   const [draftCitations, setDraftCitations] = useState<CaseCitation[]>([]);
   const [isSearchingCitations, setIsSearchingCitations] = useState(false);
   const [showCitationsDropdown, setShowCitationsDropdown] = useState(false);
   const [isRewritingDraft, setIsRewritingDraft] = useState(false);
   const [citationSearchError, setCitationSearchError] = useState('');
   const [enlargedElement, setEnlargedElement] = useState<'facts' | 'model' | 'pad' | 'suggestions' | null>(null);
+
+  // Synchronize muting Gemini Live voice playout during drafting / fact entry
+  useEffect(() => {
+    if (view === 'drafting' || enlargedElement === 'facts') {
+      geminiLive.setMuteAudio(true);
+    } else {
+      geminiLive.setMuteAudio(false);
+    }
+  }, [view, enlargedElement, geminiLive.setMuteAudio]);
+
   const [draftEditorMode, setDraftEditorMode] = useState<'edit' | 'interactive'>('interactive');
   const [highlightedCitationId, setHighlightedCitationId] = useState<string | null>(null);
   const [showCustomPromptPage, setShowCustomPromptPage] = useState(false);
@@ -733,6 +794,38 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   useEffect(() => { voiceAiOnRef.current = voiceAiOn; }, [voiceAiOn]);
   useEffect(() => { voiceAiStatusRef.current = voiceAiStatus; }, [voiceAiStatus]);
 
+  // Synchronize state with geminiLive
+  useEffect(() => {
+    setVoiceAiOn(geminiLive.isConnected);
+    setWhisperReady(geminiLive.isWhisperReady);
+    setWhisperProgress(geminiLive.whisperProgress);
+    setIsWhisperDownloading(geminiLive.isWhisperLoading);
+
+    if (geminiLive.isConnected) {
+      if (geminiLive.isModelSpeaking) {
+        setVoiceAiStatus('speaking');
+      } else if (geminiLive.isConnecting) {
+        setVoiceAiStatus('thinking');
+      } else {
+        setVoiceAiStatus('listening');
+      }
+
+      setMicLevel(Math.min(100, Math.round(geminiLive.volume * 500)));
+
+      // Populate voiceAiTranscript & voiceAiReply dynamically from newest messages
+      const msgs = geminiLive.messages;
+      if (msgs.length > 0) {
+        const lastUser = [...msgs].reverse().find(m => m.role === 'user');
+        const lastModel = [...msgs].reverse().find(m => m.role === 'model');
+        if (lastUser) setVoiceAiTranscript(lastUser.text);
+        if (lastModel) setVoiceAiReply(lastModel.text);
+      }
+    } else {
+      setVoiceAiStatus('idle');
+      setMicLevel(0);
+    }
+  }, [geminiLive.isConnected, geminiLive.isModelSpeaking, geminiLive.isConnecting, geminiLive.messages, geminiLive.volume, geminiLive.isWhisperReady, geminiLive.whisperProgress, geminiLive.isWhisperLoading]);
+
   // Restart voice AI when language changes
   useEffect(() => {
     if (voiceAiOn && voiceAiStatus === 'listening') {
@@ -764,7 +857,7 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   // Whisper Speech-to-Text Model States
   const [whisperProgress, setWhisperProgress] = useState(0);
   const [isWhisperDownloading, setIsWhisperDownloading] = useState(false);
-  const [whisperMessage, setWhisperMessage] = useState('Whisper Local Model · ~547 MB · ggml-large-v3-turbo-q5_0');
+  const [whisperMessage, setWhisperMessage] = useState('WhisperMini (Xenova) · ~38 MB · whisper-tiny-quantized');
   const [whisperReady, setWhisperReady] = useState(false);
 
   // --- Hardware Scan & RAM constraints ---
@@ -1765,7 +1858,11 @@ Please repeat or acknowledge what they narrated to confirm you received it corre
     setView('brain2');
     // We add a slight delay to ensure the view has switched before starting the heavy load
     setTimeout(() => {
-      handleDownloadBrain2();
+      if (isLowRam) {
+        handleDownloadBrain1();
+      } else {
+        handleDownloadBrain2();
+      }
     }, 100);
   };
 
@@ -1774,12 +1871,19 @@ Please repeat or acknowledge what they narrated to confirm you received it corre
     setBrain1Progress(1); 
     setBrain1Message("🚀 Initiating Brain1 Nexus Engine...");
     setBrain1Ready(false);
+    setDownloadProgress(1);
+    setIsDownloading(true);
+    setDownloadMessage("🚀 Initiating Brain1 Nexus Engine...");
 
     const engine = HybridAIEngine.getInstance();
     try {
       await engine.loadBrain1((progress, text) => {
         setBrain1Progress(progress);
         setBrain1Message(text);
+        // Sync with legacy state for components using it
+        setDownloadProgress(progress);
+        setIsDownloading(progress < 100);
+        setDownloadMessage(text);
       }, false);
 
       const status = engine.getStatus();
@@ -1794,8 +1898,10 @@ Please repeat or acknowledge what they narrated to confirm you received it corre
     } catch (err) {
       console.error("Brain1 load exception:", err);
       setBrain1Message(`⚠️ Exception: ${(err as Error).message}`);
+      setDownloadMessage(`⚠️ Exception: ${(err as Error).message}`);
     } finally {
       setIsBrain1Downloading(false);
+      setIsDownloading(false);
     }
     setAiStatus(engine.getStatus());
   };
@@ -1860,52 +1966,42 @@ Please repeat or acknowledge what they narrated to confirm you received it corre
   const handleDownloadWhisper = async (force = false) => {
     if (isWhisperDownloading) return;
 
-    const key = "ggml-large-v3-turbo-q5_0";
-    const storageKey = 'nexus-model-' + key;
+    const engine = MalayalamEngine.getInstance();
+    if (engine.getStatus().sttReady && !force) {
+      setWhisperProgress(100);
+      setWhisperReady(true);
+      setWhisperMessage("✅ Local WhisperMini (Xenova) model cached & active.");
+      return;
+    }
 
     try {
-      if (!force) {
-        const cache = await get(storageKey);
-        if (cache instanceof Blob) {
-          setWhisperProgress(100);
-          setWhisperReady(true);
-          setWhisperMessage("✅ Local Whisper.cpp model cached & active.");
-          return;
-        }
-      }
-
       setIsWhisperDownloading(true);
       setWhisperProgress(1);
-      setWhisperMessage("🚀 Initiating Whisper.cpp Large v3 Turbo download...");
+      setWhisperMessage("🚀 Initiating WhisperMini (Xenova) download...");
       setWhisperReady(false);
 
-      const url = "https://huggingface.co/Kichu123/ggml-large-v3-turbo-q5_0.bin/resolve/main/ggml-large-v3-turbo-q5_0.bin";
-      
-      await ParallelDownloader.download(
-        url,
-        key,
-        4,
-        (pct, loaded, total) => {
-          setWhisperProgress(pct);
-          const loadedMB = Math.round(loaded / 1024 / 1024);
-          const totalMB = total > 0 ? `${Math.round(total / 1024 / 1024)} MB` : "unknown MB";
-          setWhisperMessage(`📥 Torrenting model: ${loadedMB} MB / ${totalMB} (${pct}%)`);
-        }
-      );
+      await engine.loadSTT((progress) => {
+        setWhisperProgress(progress);
+        setWhisperMessage(`📥 Torrenting model: ${progress}% processed...`);
+      });
 
       setWhisperProgress(100);
       setWhisperReady(true);
-      setWhisperMessage("✅ Local Whisper.cpp model downloaded successfully.");
+      setWhisperMessage("✅ Local WhisperMini (Xenova) model loaded successfully.");
     } catch (err) {
       console.error("Whisper download error:", err);
       setWhisperProgress(0);
-      setWhisperMessage(`⚠️ Error: ${(err as Error).message}. Check neural connection.`);
+      setWhisperReady(false);
+      setWhisperMessage(`⚠️ Error: ${(err as Error).message}. Check network connection.`);
     } finally {
       setIsWhisperDownloading(false);
     }
   };
 
-  // Auto-download removed; user initiates from Brain2 tab
+  // Automatically trigger Whisper background check and download when the app opens
+  useEffect(() => {
+    handleDownloadWhisper(false);
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -4263,9 +4359,9 @@ Paragraph: [Detailed rationale of principle of law and application]
                       <div>
                         <div className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">STT Brain · Offline</div>
                         <div className="text-lg font-black text-slate-200 flex items-center gap-2 font-sans">
-                          Whisper Large v3
+                          WhisperMini (Xenova)
                         </div>
-                        <div className="text-[10px] text-slate-400">ggml-large-v3-turbo-q5_0 · ~547 MB</div>
+                        <div className="text-[10px] text-slate-400">whisper-tiny-quantized · ~38 MB</div>
                       </div>
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${whisperReady ? 'bg-indigo-500/20 text-indigo-400' : 'bg-white/5 text-slate-500'}`}>
                         <Mic size={18} />
@@ -4274,10 +4370,10 @@ Paragraph: [Detailed rationale of principle of law and application]
 
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { label: 'Format', value: 'GGML / Binary' },
-                        { label: 'Quant', value: 'Q5_0 (High Quality)' },
-                        { label: 'Size', value: '~547 MB' },
-                        { label: 'RAM needed', value: '~1.0 GB' },
+                        { label: 'Format', value: 'ONNX / Xenova' },
+                        { label: 'Model', value: 'Whisper Mini/Tiny' },
+                        { label: 'Size', value: '~38 MB' },
+                        { label: 'RAM needed', value: 'Minimal (<100MB)' },
                         { label: 'Platform', value: 'Local Voice AI' },
                         { label: 'Auto-load', value: 'On App Open' },
                       ].map((item, i) => (
@@ -5054,6 +5150,98 @@ Paragraph: [Detailed rationale of principle of law and application]
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Nexus Link Dock */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[150] flex flex-col items-center gap-4">
+        <AnimatePresence>
+          {geminiLive.isConnected && (
+            <motion.div 
+              initial={{ y: 20, opacity: 0, scale: 0.9 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 20, opacity: 0, scale: 0.9 }}
+              className="bg-black/90 backdrop-blur-3xl border border-white/10 rounded-3xl p-6 w-[400px] shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-2 h-2 rounded-full ${
+                    geminiLive.isModelSpeaking ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'
+                  }`} />
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    {geminiLive.isModelSpeaking ? 'Nexus Speaking' : 'Listening...'}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => geminiLive.disconnect()}
+                    className="p-2 bg-white/5 hover:bg-red-500/20 rounded-xl text-slate-500 hover:text-red-500 transition-all flex items-center gap-2"
+                    title="Close Conversation"
+                  >
+                    <span className="text-[10px] font-black uppercase tracking-widest px-1">Close</span>
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex flex-col items-center gap-3">
+                  <VoiceVisualizer 
+                    volume={geminiLive.volume} 
+                    isModelSpeaking={geminiLive.isModelSpeaking} 
+                    isThinking={false}
+                    isConnected={geminiLive.isConnected} 
+                  />
+                  
+                  {/* Transcript panel of actual vocal back-and-forth */}
+                  <div className="w-full max-h-[160px] overflow-y-auto custom-scrollbar flex flex-col gap-2 p-3 bg-white/5 rounded-2xl border border-white/5 text-left my-1">
+                    {geminiLive.messages.length === 0 ? (
+                      <div className="text-slate-500 text-xs text-center py-4 italic">
+                        Start speaking to see transcript...
+                      </div>
+                    ) : (
+                      geminiLive.messages.map((msg, idx) => (
+                        <div 
+                          key={idx} 
+                          className={`flex flex-col gap-0.5 max-w-[85%] ${
+                            msg.role === 'user' ? 'self-end items-end' : 'self-start items-start'
+                          }`}
+                        >
+                          <span className="text-[8px] font-black uppercase tracking-widest text-slate-500">
+                            {msg.role === 'user' ? 'You' : 'Nexus'}
+                          </span>
+                          <div 
+                            className={`px-3 py-1.5 rounded-2xl text-xs leading-relaxed break-words ${
+                              msg.role === 'user' 
+                                ? 'bg-indigo-600 text-white rounded-tr-none' 
+                                : 'bg-slate-800 text-slate-200 border border-white/5 rounded-tl-none'
+                            }`}
+                          >
+                            {msg.text}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div ref={transcriptEndRef} />
+                  </div>
+
+                  <div className="text-[10px] font-medium text-slate-400 italic text-center w-full">
+                    {geminiLive.isWhisperTranscribing ? (
+                      <span className="text-amber-400 font-bold animate-pulse">Whisper transcription active...</span>
+                    ) : geminiLive.messages.length > 0 ? (
+                      geminiLive.isModelSpeaking ? "Nexus is speaking..." : "Listening..."
+                    ) : (
+                      "Live audio transcriber ready"
+                    )}
+                  </div>
+                </div>
+                {voiceAiReply && (
+                  <div className="text-sm text-slate-400 leading-relaxed border-t border-white/5 pt-3 flex justify-between items-start gap-4">
+                    <div className="flex-1">{voiceAiReply}</div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
