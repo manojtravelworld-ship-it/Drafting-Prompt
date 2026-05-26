@@ -479,6 +479,35 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
   const [newDirectivePrompt, setNewDirectivePrompt] = useState('');
   const [showAddDirectiveForm, setShowAddDirectiveForm] = useState(false);
 
+  const [activeWorkbenchPanel, setActiveWorkbenchPanel] = useState(0);
+  const workbenchContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToWorkbenchPanel = (panelIndex: number) => {
+    if (!workbenchContainerRef.current) return;
+    const container = workbenchContainerRef.current;
+    
+    const children = Array.from(container.children).filter(el => 
+      el.classList.contains('snap-center') || el.classList.contains('snap-start')
+    );
+    
+    if (children && children[panelIndex]) {
+      children[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      setActiveWorkbenchPanel(panelIndex);
+    }
+  };
+
+  const handleWorkbenchScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const scrollLeft = container.scrollLeft;
+    const width = container.clientWidth;
+    if (width > 0) {
+      const index = Math.round(scrollLeft / width);
+      if (index !== activeWorkbenchPanel && index >= 0 && index < 2) {
+        setActiveWorkbenchPanel(index);
+      }
+    }
+  };
+
   const [systemDirectives, setSystemDirectives] = useState<{ label: string; text: string }[]>(() => {
     try {
       const stored = localStorage.getItem('nexus_system_directives');
@@ -861,7 +890,10 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
 
   const [voiceAiOn, setVoiceAiOn] = useState(false);
   const [voiceLang, setVoiceLang] = useState<'en-US' | 'ml-IN'>('en-US');
-  const [sttEngine, setSttEngine] = useState<'webspeech' | 'chirp3' | 'whisper'>('webspeech');
+  const [sttEngine, setSttEngine] = useState<'webspeech' | 'chirp3' | 'whisper' | 'android'>(() => {
+    const isMobileDetect = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    return isMobileDetect ? 'android' : 'webspeech';
+  });
   const [voiceAiTranscript, setVoiceAiTranscript] = useState("");
   const [voiceAiReply, setVoiceAiReply] = useState("");
   const [voiceAiStatus, setVoiceAiStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking' | string>('idle');
@@ -1099,9 +1131,143 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
     await startLocalSTT();
   };
 
+  const startAndroidSTT = async () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Android/Mobile Speech recognition is not supported in this browser. Please use Chrome on Android.");
+      return;
+    }
+
+    if (recognitionRef.current) {
+      const old = recognitionRef.current;
+      old.onend = null;
+      old.onresult = null;
+      old.onerror = null;
+      old.onstart = null;
+      try { old.stop(); } catch(e) {}
+      recognitionRef.current = null;
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    const isMicActive = micStreamRef.current && micStreamRef.current.getTracks().some(t => t.readyState === 'live');
+    if (!isMicActive) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+      } catch (err) {
+        console.error("Microphone access error for Android STT:", err);
+        setVoiceAiOn(false);
+        return;
+      }
+    }
+
+    setVoiceAiOn(true);
+    setVoiceAiStatus('listening');
+    setVoiceAiTranscript("Listening (Android STT Optimized)...");
+    setVoiceAiReply("");
+
+    if (!isMicActive) {
+      startMicLevelMonitoring();
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false; // Single-shot mode is exceptionally stable on mobile/Android
+    recognition.interimResults = true;
+    recognition.lang = voiceLang;
+
+    let androidFinalTranscript = "";
+    let isProcessed = false;
+
+    recognition.onstart = () => {
+      console.log("Android Speech Recognition session started");
+      setVoiceAiStatus('Listening (Android)');
+    };
+
+    recognition.onspeechstart = () => {
+      if (voiceAiStatusRef.current === 'speaking' || voiceAiStatusRef.current === 'thinking') {
+        window.speechSynthesis.cancel();
+        if (gemmaAudioRef.current) {
+          try { gemmaAudioRef.current.pause(); } catch(e) {}
+          gemmaAudioRef.current = null;
+        }
+        sentenceQueueRef.current = [];
+        isSpeakingQueueRef.current = false;
+        setVoiceAiStatus('listening');
+      }
+    };
+
+    recognition.onresult = (event: any) => {
+      const isListening = voiceAiStatusRef.current === 'listening' || voiceAiStatusRef.current.includes('Listening');
+      if (!isListening) return;
+
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          androidFinalTranscript = event.results[i][0].transcript;
+        } else {
+          interim = event.results[i][0].transcript;
+        }
+      }
+
+      const text = (androidFinalTranscript || interim).trim();
+      if (text) {
+        setVoiceAiTranscript(text);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.warn("Android Speech Recognition error event:", event.error);
+      (recognition as any).lastError = event.error;
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        return;
+      }
+      if (event.error === 'network') {
+        setVoiceAiTranscript("Unstable mobile network. Reconnecting...");
+      }
+    };
+
+    recognition.onend = () => {
+      console.log("Android Speech Recognition session completed.");
+      
+      const currentText = voiceAiTranscript.trim();
+      const hasContent = currentText && 
+                         currentText !== "Listening..." && 
+                         currentText !== "Listening (Android STT Optimized)..." && 
+                         currentText !== "Speak now..." && 
+                         currentText.length > 1;
+
+      if (hasContent && !isProcessed) {
+        isProcessed = true;
+        processVoiceCommand(currentText);
+      }
+
+      if (voiceAiOnRef.current && (voiceAiStatusRef.current === 'listening' || voiceAiStatusRef.current.includes('Listening'))) {
+        const cooldown = (recognition as any).lastError === 'network' ? 1200 : 150;
+        setTimeout(() => {
+          if (voiceAiOnRef.current && (voiceAiStatusRef.current === 'listening' || voiceAiStatusRef.current.includes('Listening'))) {
+            startAndroidSTT();
+          }
+        }, cooldown);
+      }
+    };
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (e) {
+      console.error("Failed to start Android speech recognizer:", e);
+      setTimeout(() => { if (voiceAiOnRef.current) startAndroidSTT(); }, 500);
+    }
+  };
+
   const startVoiceAi = async () => {
     if (sttEngine === 'whisper') {
       startLocalSTT();
+      return;
+    }
+
+    if (sttEngine === 'android') {
+      startAndroidSTT();
       return;
     }
 
@@ -1355,20 +1521,16 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
     if (voiceAiOn) {
       stopVoiceAi();
     } else {
-      if (view === 'drafting' || enlargedElement === 'facts') {
-        const isMalayalam = voiceLang === 'ml-IN';
-        const promptText = isMalayalam 
-          ? "കേസിന്റെ വസ്തുതകൾ എന്നോട് പറയൂ, ഞാൻ അത് എഴുതിയെടുക്കാം."
-          : "Say me the fact of the case ,I will transcribe it";
-          
-        setVoiceAiOn(true);
-        await speakResponse({
-          text: promptText,
-          model: "DRAFTING ASSISTANT"
-        });
-      } else {
-        startVoiceAi();
-      }
+      const isMalayalam = voiceLang === 'ml-IN';
+      const promptText = isMalayalam 
+        ? "നമസ്കാരം, ഞാൻ എങ്ങനെ സഹായിക്കണം?"
+        : " Good day, How can I help you today?";
+        
+      setVoiceAiOn(true);
+      await speakResponse({
+        text: promptText,
+        model: "NEXUS ASSISTANT"
+      });
     }
   };
 
@@ -1483,7 +1645,7 @@ export default function AdvocatePortal({ onBack }: { onBack: () => void }) {
         const isMalayalam = /[\u0D00-\u0D7F]/.test(text);
         let dynamicPrompt = "";
         
-        const engineLabel = sttEngine === 'chirp3' ? 'Google Chirp 3 (Premium Cloud)' : sttEngine === 'whisper' ? 'whisper.cpp (Local high-performance)' : 'Web Speech Engine';
+        const engineLabel = sttEngine === 'chirp3' ? 'Google Chirp 3 (Premium Cloud)' : sttEngine === 'whisper' ? 'whisper.cpp (Local high-performance)' : sttEngine === 'android' ? 'Android Speech Recogniser' : 'Web Speech Engine';
         
         if (isMalayalam) {
           dynamicPrompt = `You are a professional legal AI assistant for Kerala. Under the ${engineLabel} transcription, the user narrated a key case detail / story snippet: "${text}".
@@ -1507,7 +1669,7 @@ Please repeat or acknowledge what they narrated to confirm you received it corre
       setVoiceAiReply(aiReplyText);
       await speakResponse({
         text: aiReplyText,
-        model: sttEngine === 'chirp3' ? "Chirp 3" : sttEngine === 'whisper' ? "whisper.cpp" : "AI Encourager"
+        model: sttEngine === 'chirp3' ? "Chirp 3" : sttEngine === 'whisper' ? "whisper.cpp" : sttEngine === 'android' ? "Android STT" : "AI Encourager"
       });
       return;
     }
@@ -2708,46 +2870,6 @@ Paragraph: [Detailed rationale of principle of law and application]
 
   return (
     <div style={S.page} className="fixed inset-0 z-[100] selection:bg-indigo-500/30">
-      {(!browserCompatibility.isCompatible && showCompatibilityBanner) && (
-        <div className="fixed top-0 left-0 right-0 bg-indigo-600 border-b border-indigo-400/20 px-6 py-1 flex items-center justify-between z-[1000] shadow-2xl">
-          <div className="flex items-center gap-3">
-            <span className="text-white font-black text-[8px] tracking-[0.2em] uppercase bg-white/20 px-2 py-0.5 rounded shadow-sm">
-              {aiStatus.isLocalReady ? 'Local Active' : 'Hybrid Sync'}
-            </span>
-            <p className="text-[10px] text-white/90 font-bold tracking-tight">
-              Active Engine: <span className="text-white underline decoration-white/30">{aiStatus.voiceModel}</span>. 
-              {typeof SharedArrayBuffer === 'undefined' ? " (⚠️ HARDWARE LIMIT: Browser restricted to single-core. Response will be slow.)" : " (🚀 HIGH PERFORMANCE: Multi-core neural engine active)"}
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {voiceAiOn && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full border border-white/20">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[9px] font-black text-white/70 uppercase tracking-widest">Voice Active</span>
-                <button 
-                  onClick={() => stopVoiceAi()}
-                  className="ml-2 text-[8px] font-black text-white px-1.5 py-0.5 bg-red-500 rounded hover:bg-red-600 transition-colors uppercase"
-                >
-                  Reset
-                </button>
-              </div>
-            )}
-            <button 
-              onClick={() => window.open('https://developer.chrome.com/blog/enabling-shared-array-buffer/', '_blank')}
-              className="text-[9px] font-black uppercase tracking-widest text-white/70 hover:text-white transition-all bg-white/10 px-3 py-1 rounded-full border border-white/20 hover:bg-white/20"
-            >
-              {typeof SharedArrayBuffer === 'undefined' ? "How to fix Speed" : "Learn More"}
-            </button>
-            <button 
-              onClick={() => setShowCompatibilityBanner(false)}
-              className="text-white/50 hover:text-white transition-colors"
-              title="Dismiss"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
       {/* SIDEBAR */}
       <div style={S.sidebar} className="custom-scrollbar">
         <div className="w-full aspect-square bg-amber-500 flex items-center justify-center mb-4">
@@ -2863,7 +2985,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                         </div>
                         
                         <div className="flex gap-3 mb-4">
-                          <button onClick={() => setVoiceAiOn(!voiceAiOn)} className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${voiceAiOn ? 'bg-red-500 text-white' : 'bg-indigo-500 text-white shadow-[0_4px_15px_rgba(99,102,241,0.3)]'}`}>
+                          <button onClick={toggleVoiceAi} className={`flex-1 py-3 rounded-xl font-black text-sm transition-all ${voiceAiOn ? 'bg-red-500 text-white' : 'bg-indigo-500 text-white shadow-[0_4px_15px_rgba(99,102,241,0.3)]'}`}>
                             {voiceAiOn ? 'Stop' : 'Start'}
                           </button>
                             <button 
@@ -4581,7 +4703,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                   }`} />
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                     {voiceAiStatus === 'listening' 
-                      ? `Listening (${sttEngine === 'chirp3' ? 'Chirp 3' : sttEngine === 'whisper' ? 'whisper.cpp' : 'Web Speech'})` 
+                      ? `Listening (${sttEngine === 'chirp3' ? 'Chirp 3' : sttEngine === 'whisper' ? 'whisper.cpp' : sttEngine === 'android' ? 'Android Speech' : 'Web Speech'})` 
                       : voiceAiStatus === 'thinking' ? 'Nexus Processing' 
                       : voiceAiStatus.includes('Answering') || voiceAiStatus.includes('Speaking') ? voiceAiStatus 
                       : 'Nexus Ready'}
@@ -4608,6 +4730,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                       title="Select STT Engine"
                     >
                       <option value="webspeech">SPEECH API</option>
+                      <option value="android">ANDROID SPEECH</option>
                       <option value="chirp3">CHIRP 3</option>
                       <option value="whisper">WHISPER.CPP</option>
                     </select>
@@ -4820,7 +4943,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                       {voiceAiOn ? (
                         <div className="flex flex-col ml-4">
                           <div className="text-[10px] font-black text-indigo-400 tracking-widest uppercase">
-                            STORYTELLING ACTIVE ({sttEngine === 'chirp3' ? 'Chirp 3 Cloud' : sttEngine === 'whisper' ? 'whisper.cpp Local' : 'Web Speech'})
+                            STORYTELLING ACTIVE ({sttEngine === 'chirp3' ? 'Chirp 3 Cloud' : sttEngine === 'whisper' ? 'whisper.cpp Local' : sttEngine === 'android' ? 'Android Speech' : 'Web Speech'})
                           </div>
                           <div className="text-sm text-emerald-500 font-bold animate-pulse max-w-md truncate">
                             {voiceAiTranscript === "Listening..." ? "Narrate your case facts now..." : voiceAiTranscript}
@@ -4892,11 +5015,42 @@ Paragraph: [Detailed rationale of principle of law and application]
                 </button>
               </div>
 
+              {/* Mobile Tab Navigation for Custom Prompt Workbench */}
+              <div className="flex md:hidden bg-[#090e18] border-b border-white/10 p-2.5 justify-around items-center shrink-0 z-30 select-none">
+                <button 
+                  type="button"
+                  onClick={() => scrollToWorkbenchPanel(0)}
+                  className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                    activeWorkbenchPanel === 0 
+                      ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                      : 'text-slate-400 hover:text-white bg-white/5'
+                  }`}
+                >
+                  1. Context & Presets
+                </button>
+                <div className="text-slate-800 text-[10px] font-bold">•</div>
+                <button 
+                  type="button"
+                  onClick={() => scrollToWorkbenchPanel(1)}
+                  className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                    activeWorkbenchPanel === 1 
+                      ? 'bg-indigo-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.5)] scale-[1.05]' 
+                      : 'text-slate-400 hover:text-white bg-white/5'
+                  }`}
+                >
+                  2. Prompt & Actions
+                </button>
+              </div>
+
               {/* Main Content Workspace */}
-              <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              <div 
+                ref={workbenchContainerRef}
+                onScroll={handleWorkbenchScroll}
+                className="flex-1 flex flex-row overflow-x-auto md:overflow-hidden snap-x snap-mandatory scroll-smooth custom-scrollbar"
+              >
                 
                 {/* Left side: Case context summary */}
-                <div className="w-full md:w-80 bg-black/40 border-r border-white/5 p-6 md:p-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar">
+                <div className="w-[calc(100vw-48px)] md:w-80 flex-shrink-0 snap-center bg-black/40 border-r border-white/5 p-6 md:p-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar">
                   <div>
                     <h3 className="text-xs font-black text-indigo-400 tracking-wider uppercase mb-3">Case Context Status</h3>
                     <div className="space-y-4">
@@ -5169,7 +5323,7 @@ Paragraph: [Detailed rationale of principle of law and application]
                 </div>
 
                 {/* Right side: Active Custom Prompt Textarea & Triggers */}
-                <div className="flex-1 p-6 md:p-10 flex flex-col justify-between overflow-y-auto custom-scrollbar bg-black/10">
+                <div className="w-[calc(100vw-48px)] md:w-auto md:flex-1 flex-shrink-0 snap-center p-6 md:p-10 flex flex-col justify-between overflow-y-auto custom-scrollbar bg-black/10">
                   <div className="flex-1 flex flex-col gap-4">
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-3">
